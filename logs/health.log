@@ -1,4 +1,0 @@
-{"event": "health_change", "timestamp": "2026-04-28T06:38:43.011038+00:00", "backend_name": "api-2", "old_status": "available", "new_status": "unavailable"}
-{"event": "health_change", "timestamp": "2026-04-28T06:38:43.014227+00:00", "backend_name": "api-1", "old_status": "available", "new_status": "unavailable"}
-{"event": "health_change", "timestamp": "2026-04-28T06:38:43.030291+00:00", "backend_name": "api-3", "old_status": "available", "new_status": "unavailable"}
-{"event": "health_change", "timestamp": "2026-04-28T06:38:53.411699+00:00", "backend_name": "api-4", "old_status": "available", "new_status": "unavailable"}
