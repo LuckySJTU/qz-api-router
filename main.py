@@ -59,6 +59,7 @@ async def run_headless(config: dict):
     host = config["proxy"]["host"]
     port = config["proxy"]["port"]
     bind_display = "localhost" if host == "0.0.0.0" else host
+    print("API Router - github.com/LuckySJTU/qz-api-router")
     print(f"API Router listening on http://{bind_display}:{port}")
     print(f"  Proxy endpoint:  http://{bind_display}:{port}/v1/chat/completions")
     print(f"  Health check:    http://{bind_display}:{port}/router/health")

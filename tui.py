@@ -90,6 +90,7 @@ class RouterDashboard(App):
     """
 
     TITLE = "API Router Dashboard"
+    SUBTITLE = "github.com/LuckySJTU/qz-api-router"
     BINDINGS = [("q", "quit", "Quit"), ("r", "refresh", "Refresh Now")]
 
     def __init__(self, api_router: APIRouter, refresh_interval: float = 1.0, **kwargs):
