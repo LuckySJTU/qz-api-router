@@ -1,0 +1,41 @@
+# API Router Configuration
+
+# Local proxy server
+proxy:
+  host: 0.0.0.0
+  port: 8600
+
+# HTTP proxy for outgoing requests to backends (all 4 share the same proxy)
+# Set to empty string or remove to disable
+# Examples: http://127.0.0.1:7890  socks5://127.0.0.1:1080
+http_proxy: http://127.0.0.1:7890
+
+# Shared API key for all backends
+api_key: sk-your-api-key-here
+
+# Backend API endpoints (same model, different deployments)
+backends:
+  - name: api-1
+    url: https://api1.example.com
+  - name: api-2
+    url: https://api2.example.com
+  - name: api-3
+    url: https://api3.example.com
+  - name: api-4
+    url: https://api4.example.com
+
+# Health check settings
+health_check:
+  interval: 10          # seconds between health checks
+  timeout: 5            # seconds for health check request timeout
+  failure_threshold: 5  # consecutive failures to mark unavailable
+  recovery_threshold: 2 # consecutive successes to mark available again
+
+# Request settings
+request:
+  timeout: 120          # seconds for proxied request timeout (adjustable for debugging)
+  max_retries: 2        # max retries on different backends
+
+# TUI dashboard
+tui:
+  refresh_interval: 1   # seconds between TUI refresh
