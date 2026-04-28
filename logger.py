@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 class RoutingLogger:
     """Logs routing decisions: request time, target backend, response time."""
 
-    def __init__(self, log_dir: str = "logs"):
+    def __init__(self, log_dir: str = "logs", quiet: bool = False):
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
 
@@ -41,14 +41,19 @@ class RoutingLogger:
             self.health_logger.addHandler(h)
 
         # Console logger
+        # When quiet=True (TUI mode), suppress stderr output to avoid
+        # it flashing on screen and being overwritten by Textual redraws.
         self.console = logging.getLogger("console")
         self.console.setLevel(logging.INFO)
         if not self.console.handlers:
-            ch = logging.StreamHandler()
-            ch.setFormatter(
-                logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", datefmt="%H:%M:%S")
-            )
-            self.console.addHandler(ch)
+            if quiet:
+                self.console.addHandler(logging.NullHandler())
+            else:
+                ch = logging.StreamHandler()
+                ch.setFormatter(
+                    logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", datefmt="%H:%M:%S")
+                )
+                self.console.addHandler(ch)
 
     def log_request_start(self, request_id: str, method: str, path: str, backend_name: str, backend_url: str):
         """Log when a request is routed to a backend."""

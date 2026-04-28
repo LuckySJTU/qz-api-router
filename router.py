@@ -145,7 +145,7 @@ class APIRouter:
             self.backends.append(Backend(name=bc["name"], url=bc["url"]))
 
         # Initialize components
-        self.logger = RoutingLogger(log_dir=config.get("log_dir", "logs"))
+        self.logger = RoutingLogger(log_dir=config.get("log_dir", "logs"), quiet=config.get("quiet_console", False))
         self.load_balancer = LoadBalancer()
         self.health_checker = HealthChecker(
             self.backends, self.api_key, config["health_check"],

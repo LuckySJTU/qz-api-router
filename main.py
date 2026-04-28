@@ -19,6 +19,10 @@ async def run_with_tui(config: dict):
     """Run proxy server + TUI dashboard together."""
     from tui import RouterDashboard
 
+    # Suppress console logging in TUI mode to avoid stderr output
+    # flashing on screen and being overwritten by Textual redraws.
+    config["quiet_console"] = True
+
     api_router = APIRouter(config)
     await api_router.start()
 
