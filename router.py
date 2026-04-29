@@ -145,12 +145,15 @@ class APIRouter:
             self.backends.append(Backend(name=bc["name"], url=bc["url"]))
 
         # Initialize components
-        self.logger = RoutingLogger(log_dir=config.get("log_dir", "logs"), quiet=config.get("quiet_console", False))
+        self.logger = RoutingLogger(log_dir=config.get("log_dir", "logs"))
         self.load_balancer = LoadBalancer()
         self.health_checker = HealthChecker(
             self.backends, self.api_key, config["health_check"],
             self.logger, proxy_url=self.proxy_url,
         )
+
+        # Shared session for connection pooling — created in start()
+        self._session: Optional[aiohttp.ClientSession] = None
 
         # Stats
         self.total_proxied_requests = 0
@@ -158,6 +161,15 @@ class APIRouter:
         self.total_proxied_fail = 0
 
     async def start(self):
+        # Create a single shared session with a connection pool
+        connector = aiohttp.TCPConnector(
+            limit=100,           # total concurrent connections across all hosts
+            limit_per_host=30,   # max connections per backend host
+            ttl_dns_cache=300,   # DNS cache TTL in seconds
+            enable_cleanup_closed=True,
+        )
+        self._session = aiohttp.ClientSession(connector=connector)
+
         await self.health_checker.start()
         self.logger.log_startup(
             [{"name": b.name, "url": b.url} for b in self.backends],
@@ -169,6 +181,8 @@ class APIRouter:
 
     async def stop(self):
         await self.health_checker.stop()
+        if self._session:
+            await self._session.close()
 
     async def handle_request(
         self,
@@ -248,7 +262,7 @@ class APIRouter:
         body: bytes,
         query_string: str,
     ) -> tuple:
-        """Send the actual HTTP request to a backend."""
+        """Send the actual HTTP request to a backend using the shared session."""
         url = f"{backend.url}{path}"
         if query_string:
             url = f"{url}?{query_string}"
@@ -263,21 +277,23 @@ class APIRouter:
         # Override Authorization with the shared key
         fwd_headers["Authorization"] = f"Bearer {self.api_key}"
 
+        # Per-request timeout (override the session default)
         timeout = aiohttp.ClientTimeout(total=self.timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.request(
-                method=method,
-                url=url,
-                headers=fwd_headers,
-                data=body if body else None,
-                proxy=self.proxy_url,
-            ) as resp:
-                resp_body = await resp.read()
-                resp_headers = dict(resp.headers)
-                # Clean response headers
-                resp_headers.pop("transfer-encoding", None)
-                resp_headers.pop("content-encoding", None)
-                return resp.status, resp_headers, resp_body
+
+        async with self._session.request(
+            method=method,
+            url=url,
+            headers=fwd_headers,
+            data=body if body else None,
+            proxy=self.proxy_url,
+            timeout=timeout,
+        ) as resp:
+            resp_body = await resp.read()
+            resp_headers = dict(resp.headers)
+            # Clean response headers
+            resp_headers.pop("transfer-encoding", None)
+            resp_headers.pop("content-encoding", None)
+            return resp.status, resp_headers, resp_body
 
     def get_stats(self) -> dict:
         """Get current router statistics including all backend snapshots."""
