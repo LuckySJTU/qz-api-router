@@ -245,6 +245,8 @@ class APIRouter:
                 last_error = str(e)
 
             attempts += 1
+            # Short delay before retry to avoid hammering a struggling backend
+            await asyncio.sleep(0.3)
 
         self.total_proxied_fail += 1
         return (
