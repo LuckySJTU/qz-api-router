@@ -35,7 +35,6 @@ health_check:
 request:
   timeout: 120          # total request timeout in seconds (adjustable for debugging)
   connect_timeout: 10   # TCP + TLS handshake timeout in seconds
-  read_timeout: 60      # waiting for response body from backend in seconds
   max_retries: 2        # max retries on different backends
   retry_delay: 0.3      # seconds to wait before each retry
 

@@ -23,6 +23,8 @@ class Backend:
     current_load: int = 0          # in-flight requests
     total_requests_sent: int = 0   # total requests sent
     total_responses_received: int = 0  # total responses received
+    total_success: int = 0          # responses with status < 500
+    total_fail: int = 0              # responses with status >= 500 or exception
     
     # Health tracking
     consecutive_failures: int = 0
@@ -58,6 +60,7 @@ class Backend:
             self.total_responses_received += 1
             self.response_times.append(response_time)
             if success:
+                self.total_success += 1
                 self.consecutive_failures = 0
                 self.consecutive_successes += 1
                 if self.status == BackendStatus.RECOVERING:
@@ -66,6 +69,7 @@ class Backend:
             else:
                 self.consecutive_successes = 0
                 self.consecutive_failures += 1
+                self.total_fail += 1
                 if error_msg:
                     self.recent_errors.append({
                         "time": time.time(),
@@ -95,6 +99,8 @@ class Backend:
                 "current_load": self.current_load,
                 "total_requests_sent": self.total_requests_sent,
                 "total_responses_received": self.total_responses_received,
+                "total_success": self.total_success,
+                "total_fail": self.total_fail,
                 "consecutive_failures": self.consecutive_failures,
                 "avg_response_time_ms": round(self.avg_response_time * 1000, 1),
                 "recent_errors": list(self.recent_errors)[-5:],

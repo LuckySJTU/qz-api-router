@@ -140,7 +140,6 @@ class APIRouter:
         req_cfg = config.get("request", {})
         self.timeout = req_cfg.get("timeout", 120)
         self.connect_timeout = req_cfg.get("connect_timeout", 10)
-        self.read_timeout = req_cfg.get("read_timeout", 60)
         self.max_retries = req_cfg.get("max_retries", 2)
         self.retry_delay = req_cfg.get("retry_delay", 0.3)
 
@@ -323,12 +322,13 @@ class APIRouter:
         fwd_headers["Authorization"] = f"Bearer {self.api_key}"
 
         # Fine-grained timeout: connect + read + total
+        # Timeout: connect for fast failure, total as overall cap.
+        # No sock_read -- LLM responses can have long silent periods
+        # between tokens, so socket-level read timeout would kill valid requests.
         timeout = aiohttp.ClientTimeout(
             connect=self.connect_timeout,
-            sock_read=self.read_timeout,
             total=self.timeout,
         )
-
         async with self._session.request(
             method=method,
             url=url,

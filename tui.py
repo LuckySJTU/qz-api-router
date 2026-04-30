@@ -24,7 +24,7 @@ class BackendTable(DataTable):
     def on_mount(self):
         self.add_columns(
             "Backend", "URL", "Status", "Load",
-            "Sent", "Received", "Avg RT (ms)", "Consec. Failures"
+            "Sent", "Received", "Success", "Fail", "Avg RT (ms)", "Consec. Failures"
         )
         self.cursor_type = "row"
 
@@ -46,6 +46,8 @@ class BackendTable(DataTable):
                 str(b["current_load"]),
                 str(b["total_requests_sent"]),
                 str(b["total_responses_received"]),
+                str(b["total_success"]),
+                str(b["total_fail"]),
                 str(b["avg_response_time_ms"]),
                 str(b["consecutive_failures"]),
             )
