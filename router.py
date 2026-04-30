@@ -3,6 +3,7 @@ import asyncio
 import random
 import time
 import uuid
+import json
 from typing import Optional, List
 
 import aiohttp
@@ -245,12 +246,14 @@ class APIRouter:
 
                 if success:
                     self.total_proxied_success += 1
+                    resp_body = self._inject_backend(resp_body, resp_headers, backend)
                     return status, resp_headers, resp_body
                 else:
                     last_error = f"HTTP {status}"
                     # 4xx errors are client errors, don't retry
                     if 400 <= status < 500:
                         self.total_proxied_fail += 1
+                        resp_body = self._inject_backend(resp_body, resp_headers, backend)
                         return status, resp_headers, resp_body
             except asyncio.TimeoutError as e:
                 elapsed = time.time() - start_time
@@ -343,6 +346,20 @@ class APIRouter:
             resp_headers.pop("transfer-encoding", None)
             resp_headers.pop("content-encoding", None)
             return resp.status, resp_headers, resp_body
+
+    def _inject_backend(self, body: bytes, headers: dict, backend: Backend) -> bytes:
+        """Inject router_api_backend field into JSON response body if possible."""
+        content_type = headers.get("Content-Type", headers.get("content-type", ""))
+        if "json" not in content_type:
+            return body
+        try:
+            data = json.loads(body)
+            if isinstance(data, dict):
+                data["router_api_backend"] = backend.name
+                return json.dumps(data).encode("utf-8")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        return body
 
     def get_stats(self) -> dict:
         """Get current router statistics including all backend snapshots."""
