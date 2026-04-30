@@ -60,7 +60,7 @@ class ErrorLog(Static):
         for b in backends:
             for err in b.get("recent_errors", [])[-2:]:
                 ts = err["time"]
-                lines.append(f"[red]{b['name']}[/] @ {ts:.0f}: {err['error'][:80]}")
+                lines.append(f"[red]{b['name']}[/] @ {ts:.0f}: {err['error']}")
         if not lines:
             lines.append("[dim]No recent errors[/]")
         self.update("\n".join(lines[-6:]))
@@ -75,19 +75,21 @@ class RouterDashboard(App):
     }
     StatsBar {
         height: 3;
-        dock: top;
         padding: 0 1;
         background: $surface;
+        width: 100%;
     }
     BackendTable {
         height: 1fr;
     }
     ErrorLog {
         height: auto;
+        min-height: 3;
         max-height: 10;
         padding: 0 1;
         background: $surface;
         border-top: solid $primary;
+        width: 100%;
     }
     """
 
