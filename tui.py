@@ -11,12 +11,12 @@ from router import APIRouter
 class StatsBar(Static):
     """Displays global router statistics."""
     def update_stats(self, stats: dict):
-        lines = [
+        self.update(
+            f"[dim]github.com/LuckySJTU/qz-api-router[/]\n"
             f"[bold]Total Requests:[/] {stats['total_proxied']}  "
             f"[green]Success:[/] {stats['total_success']}  "
             f"[red]Fail:[/] {stats['total_fail']}"
-        ]
-        self.update("  ".join(lines))
+        )
 
 
 class BackendTable(DataTable):
