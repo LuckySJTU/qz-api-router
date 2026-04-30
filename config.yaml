@@ -26,15 +26,24 @@ backends:
 
 # Health check settings
 health_check:
-  interval: 10          # seconds between health checks
-  timeout: 5            # seconds for health check request timeout
-  failure_threshold: 5  # consecutive failures to mark unavailable
+  interval: 5           # seconds between health checks
+  timeout: 3            # seconds for health check request timeout
+  failure_threshold: 3  # consecutive failures to mark unavailable
   recovery_threshold: 2 # consecutive successes to mark available again
 
 # Request settings
 request:
-  timeout: 120          # seconds for proxied request timeout (adjustable for debugging)
+  timeout: 120          # total request timeout in seconds (adjustable for debugging)
+  connect_timeout: 10   # TCP + TLS handshake timeout in seconds
+  read_timeout: 60      # waiting for response body from backend in seconds
   max_retries: 2        # max retries on different backends
+  retry_delay: 0.3      # seconds to wait before each retry
+
+# Connection pool settings
+connection_pool:
+  limit: 200            # total concurrent connections across all hosts
+  limit_per_host: 50    # max connections per backend host
+  keepalive_timeout: 30 # seconds to keep idle connections alive
 
 # TUI dashboard
 tui:

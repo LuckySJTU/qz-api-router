@@ -48,9 +48,9 @@ class HealthChecker:
                  logger: RoutingLogger, proxy_url: str = ""):
         self.backends = backends
         self.api_key = api_key
-        self.interval = config.get("interval", 10)
-        self.timeout = config.get("timeout", 5)
-        self.failure_threshold = config.get("failure_threshold", 5)
+        self.interval = config.get("interval", 5)
+        self.timeout = config.get("timeout", 3)
+        self.failure_threshold = config.get("failure_threshold", 3)
         self.recovery_threshold = config.get("recovery_threshold", 2)
         self.logger = logger
         self.proxy_url = proxy_url or None
@@ -135,9 +135,22 @@ class APIRouter:
     def __init__(self, config: dict):
         self.config = config
         self.api_key = config["api_key"]
-        self.timeout = config["request"].get("timeout", 120)
-        self.max_retries = config["request"].get("max_retries", 2)
+
+        # Timeout settings (fine-grained)
+        req_cfg = config.get("request", {})
+        self.timeout = req_cfg.get("timeout", 120)
+        self.connect_timeout = req_cfg.get("connect_timeout", 10)
+        self.read_timeout = req_cfg.get("read_timeout", 60)
+        self.max_retries = req_cfg.get("max_retries", 2)
+        self.retry_delay = req_cfg.get("retry_delay", 0.3)
+
         self.proxy_url = config.get("http_proxy", "") or None
+
+        # Connection pool settings
+        pool_cfg = config.get("connection_pool", {})
+        self.pool_limit = pool_cfg.get("limit", 200)
+        self.pool_limit_per_host = pool_cfg.get("limit_per_host", 50)
+        self.pool_keepalive = pool_cfg.get("keepalive_timeout", 30)
 
         # Initialize backends
         self.backends: List[Backend] = []
@@ -152,7 +165,8 @@ class APIRouter:
             self.logger, proxy_url=self.proxy_url,
         )
 
-        # Shared session for connection pooling — created in start()
+        # Shared session + connector for connection pooling — created in start()
+        self._connector: Optional[aiohttp.TCPConnector] = None
         self._session: Optional[aiohttp.ClientSession] = None
 
         # Stats
@@ -161,14 +175,15 @@ class APIRouter:
         self.total_proxied_fail = 0
 
     async def start(self):
-        # Create a single shared session with a connection pool
-        connector = aiohttp.TCPConnector(
-            limit=100,           # total concurrent connections across all hosts
-            limit_per_host=30,   # max connections per backend host
-            ttl_dns_cache=300,   # DNS cache TTL in seconds
+        # Create a single shared connector with connection pool
+        self._connector = aiohttp.TCPConnector(
+            limit=self.pool_limit,
+            limit_per_host=self.pool_limit_per_host,
+            keepalive_timeout=self.pool_keepalive,
+            ttl_dns_cache=300,
             enable_cleanup_closed=True,
         )
-        self._session = aiohttp.ClientSession(connector=connector)
+        self._session = aiohttp.ClientSession(connector=self._connector)
 
         await self.health_checker.start()
         self.logger.log_startup(
@@ -183,6 +198,8 @@ class APIRouter:
         await self.health_checker.stop()
         if self._session:
             await self._session.close()
+        if self._connector:
+            await self._connector.close()
 
     async def handle_request(
         self,
@@ -236,6 +253,31 @@ class APIRouter:
                     if 400 <= status < 500:
                         self.total_proxied_fail += 1
                         return status, resp_headers, resp_body
+            except asyncio.TimeoutError as e:
+                elapsed = time.time() - start_time
+                backend.record_response_received(elapsed, False, f"Timeout: {e}")
+                self.logger.log_request_end(
+                    request_id, backend.name, 0, elapsed, False, f"Timeout: {e}"
+                )
+                last_error = f"Timeout: {e}"
+            except aiohttp.ClientConnectorError as e:
+                elapsed = time.time() - start_time
+                backend.record_response_received(elapsed, False, f"Connection error: {e}")
+                self.logger.log_request_end(
+                    request_id, backend.name, 0, elapsed, False, f"Connection error: {e}"
+                )
+                last_error = f"Connection error: {e}"
+            except aiohttp.ClientResponseError as e:
+                elapsed = time.time() - start_time
+                backend.record_response_received(elapsed, False, f"Response error: {e}")
+                self.logger.log_request_end(
+                    request_id, backend.name, e.status, elapsed, False, f"Response error: {e}"
+                )
+                last_error = f"Response error: {e}"
+                # Don't retry on 4xx
+                if 400 <= e.status < 500:
+                    self.total_proxied_fail += 1
+                    return e.status, {}, str(e).encode()
             except Exception as e:
                 elapsed = time.time() - start_time
                 backend.record_response_received(elapsed, False, str(e))
@@ -246,7 +288,8 @@ class APIRouter:
 
             attempts += 1
             # Short delay before retry to avoid hammering a struggling backend
-            await asyncio.sleep(0.3)
+            if attempts <= self.max_retries:
+                await asyncio.sleep(self.retry_delay)
 
         self.total_proxied_fail += 1
         return (
@@ -279,8 +322,12 @@ class APIRouter:
         # Override Authorization with the shared key
         fwd_headers["Authorization"] = f"Bearer {self.api_key}"
 
-        # Per-request timeout (override the session default)
-        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        # Fine-grained timeout: connect + read + total
+        timeout = aiohttp.ClientTimeout(
+            connect=self.connect_timeout,
+            sock_read=self.read_timeout,
+            total=self.timeout,
+        )
 
         async with self._session.request(
             method=method,
