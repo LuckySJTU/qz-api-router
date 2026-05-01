@@ -15,7 +15,8 @@ class StatsBar(Static):
             f"[dim]github.com/LuckySJTU/qz-api-router[/]\n"
             f"[bold]Total Requests:[/] {stats['total_proxied']}  "
             f"[green]Success:[/] {stats['total_success']}  "
-            f"[red]Fail:[/] {stats['total_fail']}"
+            f"[red]Fail:[/] {stats['total_fail']}  "
+            f"[cyan]Sticky:[/] {stats['sticky_mappings']}"
         )
 
 

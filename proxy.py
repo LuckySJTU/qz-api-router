@@ -49,6 +49,9 @@ class ProxyServer:
         path = f"/{request.match_info['path']}"
         query_string = request.query_string
 
+        # Extract task hash for sticky routing (case-insensitive)
+        task_hash = request.headers.get("X-QZ-Task-Hash") or None
+
         # Route through the APIRouter
         status, resp_headers, resp_body = await self.router.handle_request(
             method=request.method,
@@ -56,6 +59,7 @@ class ProxyServer:
             headers=headers,
             body=body,
             query_string=query_string,
+            task_hash=task_hash,
         )
 
         # Build response

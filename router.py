@@ -1,10 +1,10 @@
-"""Core API Router - load balancing, health checking, request routing."""
+"""Core API Router - load balancing, health checking, sticky routing, request routing."""
 import asyncio
 import random
 import time
 import uuid
 import json
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 import aiohttp
 
@@ -34,6 +34,52 @@ class LoadBalancer:
             return min_load_backends[0]
         # All same load or multiple with min load -> random
         return random.choice(min_load_backends)
+
+
+class StickyRouter:
+    """Maps task hashes to fixed backends for session affinity.
+    
+    - First request from a task_hash picks a backend via load balancer and records it.
+    - Subsequent requests with the same task_hash reuse the same backend.
+    - If the assigned backend becomes unavailable, reassign on next request.
+    - Only used when X-QZ-Task-Hash header is present.
+    """
+
+    def __init__(self, backends: List[Backend]):
+        self._backends = backends
+        self._mapping: Dict[str, str] = {}  # task_hash -> backend_name
+        self._lock = asyncio.Lock()
+
+    async def get_backend(self, task_hash: str, lb: LoadBalancer) -> Optional[Backend]:
+        """Get the backend assigned to this task_hash, or assign a new one."""
+        async with self._lock:
+            backend_name = self._mapping.get(task_hash)
+            if backend_name:
+                # Look up the backend object and check if still schedulable
+                for b in self._backends:
+                    if b.name == backend_name and b.is_schedulable:
+                        return b
+                # Backend became unavailable, remove mapping and reassign
+                del self._mapping[task_hash]
+
+            # Assign a new backend via load balancer
+            backend = lb.select_backend(self._backends)
+            if backend:
+                self._mapping[task_hash] = backend.name
+            return backend
+
+    async def release_backend(self, task_hash: str) -> None:
+        """Remove the mapping for a task_hash (e.g. after task completes)."""
+        async with self._lock:
+            self._mapping.pop(task_hash, None)
+
+    @property
+    def active_mappings(self) -> int:
+        return len(self._mapping)
+
+    def get_mapping_snapshot(self) -> Dict[str, str]:
+        """Return a copy of current mappings for stats."""
+        return dict(self._mapping)
 
 
 class HealthChecker:
@@ -131,7 +177,7 @@ class HealthChecker:
 
 
 class APIRouter:
-    """Main API Router that ties together load balancing, health checking, and proxying."""
+    """Main API Router that ties together load balancing, sticky routing, health checking, and proxying."""
 
     def __init__(self, config: dict):
         self.config = config
@@ -140,7 +186,7 @@ class APIRouter:
         # Timeout settings (fine-grained)
         req_cfg = config.get("request", {})
         self.timeout = req_cfg.get("timeout", 120)
-        self.connect_timeout = req_cfg.get("connect_timeout", 10)
+        self.connect_timeout = req_cfg.get("connect_timeout", 5)
         self.max_retries = req_cfg.get("max_retries", 2)
         self.retry_delay = req_cfg.get("retry_delay", 0.3)
 
@@ -160,6 +206,7 @@ class APIRouter:
         # Initialize components
         self.logger = RoutingLogger(log_dir=config.get("log_dir", "logs"), quiet=config.get("quiet_console", False))
         self.load_balancer = LoadBalancer()
+        self.sticky_router = StickyRouter(self.backends)
         self.health_checker = HealthChecker(
             self.backends, self.api_key, config["health_check"],
             self.logger, proxy_url=self.proxy_url,
@@ -201,6 +248,12 @@ class APIRouter:
         if self._connector:
             await self._connector.close()
 
+    async def _select_backend(self, task_hash: Optional[str]) -> Optional[Backend]:
+        """Select a backend: sticky routing if task_hash present, else load balancer."""
+        if task_hash:
+            return await self.sticky_router.get_backend(task_hash, self.load_balancer)
+        return self.load_balancer.select_backend(self.backends)
+
     async def handle_request(
         self,
         method: str,
@@ -208,9 +261,11 @@ class APIRouter:
         headers: dict,
         body: bytes,
         query_string: str = "",
+        task_hash: Optional[str] = None,
     ) -> tuple:
         """Route a request to the best available backend.
 
+        If task_hash is provided, the same backend is reused for that task.
         Returns (status_code, response_headers, response_body_bytes).
         Retries on a different backend up to max_retries times on failure.
         """
@@ -221,7 +276,7 @@ class APIRouter:
         last_error = ""
 
         while attempts <= self.max_retries:
-            backend = self.load_balancer.select_backend(self.backends)
+            backend = await self._select_backend(task_hash)
             if backend is None:
                 return (
                     503,
@@ -324,10 +379,7 @@ class APIRouter:
         # Override Authorization with the shared key
         fwd_headers["Authorization"] = f"Bearer {self.api_key}"
 
-        # Fine-grained timeout: connect + read + total
-        # Timeout: connect for fast failure, total as overall cap.
-        # No sock_read -- LLM responses can have long silent periods
-        # between tokens, so socket-level read timeout would kill valid requests.
+        # Fine-grained timeout: connect + total
         timeout = aiohttp.ClientTimeout(
             connect=self.connect_timeout,
             total=self.timeout,
@@ -367,5 +419,6 @@ class APIRouter:
             "total_proxied": self.total_proxied_requests,
             "total_success": self.total_proxied_success,
             "total_fail": self.total_proxied_fail,
+            "sticky_mappings": self.sticky_router.active_mappings,
             "backends": [b.get_snapshot() for b in self.backends],
         }
