@@ -50,7 +50,9 @@ class ProxyServer:
         query_string = request.query_string
 
         # Extract task hash for sticky routing (case-insensitive)
-        task_hash = request.headers.get("X-QZ-Task-Hash") or None
+        task_hash = request.headers.get("X-QZ-Task-Hash")
+        if not task_hash or task_hash == "-1":
+            task_hash = None
 
         # Route through the APIRouter
         status, resp_headers, resp_body = await self.router.handle_request(
